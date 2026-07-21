@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -13,6 +13,46 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// ============================= Middleware =============================
+const requireProjectRole = (allowedRoles: string[]) => {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            // who sent the request?
+            const userId = req.headers['x-user-id'] as string;
+
+            // which project is being accessed? 
+            const projectId = req.body.projectId || req.query.projectId;
+
+            if (!userId || !projectId) {
+                res.status(400).json({ error: "Missing userId or projectId" });
+                return; 
+            }
+
+            // check if the user has one of the allowed roles for the project
+            const membership = await prisma.projectMember.findUnique({
+                where: {
+                    userId_projectId: { userId, projectId }
+                }
+            });
+
+            if (!membership) {
+                res.status(403).json({ error: "User is not a member of this project" });
+                return;
+            }
+
+            if (!allowedRoles.includes(membership.role)) {
+                res.status(403).json({ error: "User does not have the required role" });
+                return;
+            }
+            
+            next();
+        } catch (error) {
+            console.error("Error in middleware:", error);
+            res.status(500).json({ error: "Error in middleware" });
+        }
+    }
+}
 
 // ============================= TEST ENDOINT =============================
 app.get('/', async (req, res) => {
@@ -166,7 +206,7 @@ app.get("/api/tasks", async (req, res) => {
 })
 
 // Create a new task (POST /api/tasks)
-app.post("/api/tasks", async (req, res) => {
+app.post("/api/tasks", requireProjectRole(['ADMIN']), async (req, res) => {
     try{
         const {title, description, priority, projectId} = req.body;
 
