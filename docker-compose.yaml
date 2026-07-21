@@ -1,0 +1,19 @@
+services:
+  db:
+    # Używamy lekkiej wersji 'alpine', żeby kontener szybko się pobierał i mało ważył
+    image: postgres:16-alpine
+    container_name: scrum_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: scrum_db
+    ports:
+      # Mapowanie portów: "port_na_twoim_komputerze : port_wewnątrz_kontenera"
+      - "5432:5432"
+    volumes:
+      # To jest kluczowe! Dzięki temu nie stracisz danych po wyłączeniu kontenera
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
