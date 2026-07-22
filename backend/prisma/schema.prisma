@@ -6,7 +6,7 @@ datasource db {
   provider = "postgresql"
 }
 
-// 1. Definicje stałych (Słowniki)
+// 1. Enums
 enum Role {
   ADMIN
   DEVELOPER
@@ -25,18 +25,18 @@ enum Priority {
   HIGH
 }
 
-// 2. Modele Danych (Tabele)
+// 2. Tables
 
 model User {
   id            String          @id @default(uuid())
   email         String          @unique
-  passwordHash  String          // Nigdy nie trzymaj haseł jawnym tekstem!
+  passwordHash  String          
   name          String
   createdAt     DateTime        @default(now())
   
-  // Relacje - powiązania z innymi tabelami
-  projectRoles  ProjectMember[] // W jakich projektach uczestniczy i z jaką rolą
-  assignedTasks Task[]          @relation("TaskAssignee") // Jakie ma zadania
+  // Relations
+  projectRoles  ProjectMember[] // In which projects and as which role
+  assignedTasks Task[]          @relation("TaskAssignee") // What are their tasks?
 }
 
 model Project {
@@ -45,12 +45,12 @@ model Project {
   description String?
   createdAt   DateTime        @default(now())
 
-  // Relacje
-  members     ProjectMember[] // Kto ma dostęp do projektu
-  tasks       Task[]          // Zadania w tym projekcie
+  // Relations
+  members     ProjectMember[] // Who can access the project
+  tasks       Task[]          // Tasks in this project
 }
 
-// Tabela Łącząca (Klucz do systemu RBAC)
+// Connection table
 model ProjectMember {
   id        String   @id @default(uuid())
   userId    String
@@ -58,11 +58,11 @@ model ProjectMember {
   role      Role     @default(DEVELOPER)
   joinedAt  DateTime @default(now())
 
-  // Definicja kluczy obcych
+  // Foreign keys
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Zabezpieczenie: dany użytkownik może być przypisany do projektu tylko raz
+  // User can be assigned to certain project only once
   @@unique([userId, projectId]) 
 }
 
@@ -73,13 +73,13 @@ model Task {
   status      TaskStatus @default(TODO)
   priority    Priority   @default(MEDIUM)
   createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt // Prisma sama to zaktualizuje
+  updatedAt   DateTime   @updatedAt 
 
-  // Powiązanie zadania z projektem (Wymagane)
+  // Task - project connection
   projectId   String
   project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Powiązanie zadania z użytkownikiem (Opcjonalne - zadanie może nie być przypisane)
+  // Task - user connection
   assigneeId  String?
   assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 }

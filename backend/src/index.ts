@@ -256,6 +256,20 @@ app.patch("/api/tasks/:id", async (req, res) => {
     }
 });
 
+// Delete task (DELETE /api/tasks/:id)
+app.delete("/api/tasks/:id", async (req, res) => {
+    try{
+        const {id} = req.params;
+        await prisma.task.delete({
+            where: { id: id }
+        });
+        res.json({ message: "Task deleted successfully" });
+    }
+    catch (error) {
+        console.error("Error deleting task:", error);
+        res.status(500).json({ error: "Error deleting task" });
+    }
+})
 
 // ============================= SERVER =============================
 const PORT = process.env.PORT || 3000;
