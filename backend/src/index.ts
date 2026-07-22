@@ -208,7 +208,7 @@ app.get("/api/tasks", async (req, res) => {
 // Create a new task (POST /api/tasks)
 app.post("/api/tasks", requireProjectRole(['ADMIN']), async (req, res) => {
     try{
-        const {title, description, priority, projectId} = req.body;
+        const {title, description, priority, projectId, assigneeId} = req.body;
 
         if(!title || !projectId){
             return res.status(400).json({ error: "Title and projectId are required" });
@@ -219,7 +219,8 @@ app.post("/api/tasks", requireProjectRole(['ADMIN']), async (req, res) => {
                 title,
                 description,
                 priority: priority || 'MEDIUM', // Default priority if not provided
-                projectId
+                projectId,
+                assigneeId: assigneeId || null // Allow null if no assignee is provided
             }
         })
         res.status(201).json({
@@ -237,7 +238,7 @@ app.post("/api/tasks", requireProjectRole(['ADMIN']), async (req, res) => {
 app.patch("/api/tasks/:id", async (req, res) => {
     try{
      const {id} = req.params;
-     const { status, assigneeId, title, description } = req.body;
+     const { status, assigneeId, title, description, priority } = req.body;
      
      const updatedTask = await prisma.task.update({
         where: { id: id },
@@ -245,7 +246,8 @@ app.patch("/api/tasks/:id", async (req, res) => {
             status,
             assigneeId,
             title,
-            description
+            description,
+            priority
         }
      })
      res.json(updatedTask);
