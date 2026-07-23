@@ -4,11 +4,12 @@ import { Trash2, User as UserIcon, Edit2 } from 'lucide-react';
 import type { Task } from '../types';
 import { deleteTask } from '../api/tasks';
 import { useAuthStore } from '../store/useAuthStore';
+import { toast } from 'sonner';
 
 interface TaskCardProps {
   task: Task;
   onEdit: (task: Task) => void;
-  isOverlay?: boolean; // NOWY PROP
+  isOverlay?: boolean;
 }
 
 const getInitials = (name: string) => {
@@ -19,16 +20,19 @@ export const TaskCard = ({ task, onEdit, isOverlay }: TaskCardProps) => {
   const projectId = useAuthStore(state => state.projectId);
   const queryClient = useQueryClient();
 
-  // Wyłączamy logikę Drag&Drop dla kopii latającej nad ekranem
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
-    disabled: isOverlay, 
+    disabled: isOverlay,
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteTask,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+      toast.success("Task deleted successfully");
+    },
+    onError: () => {
+      toast.error("Failed to delete task");
     }
   });
 
@@ -37,7 +41,6 @@ export const TaskCard = ({ task, onEdit, isOverlay }: TaskCardProps) => {
       ref={isOverlay ? undefined : setNodeRef}
       {...(isOverlay ? {} : listeners)}
       {...(isOverlay ? {} : attributes)}
-      // ZMIANY WIZUALNE: przezroczystość podczas przeciągania oraz efekty dla "Overlay"
       className={`bg-white dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600 transition-all flex flex-col group
         ${isOverlay ? 'shadow-2xl scale-105 rotate-2 cursor-grabbing z-50' : 'shadow-sm hover:shadow-md cursor-grab z-10'}
         ${isDragging && !isOverlay ? 'opacity-30' : 'opacity-100'}`}

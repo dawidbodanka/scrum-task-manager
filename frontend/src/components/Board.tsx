@@ -28,21 +28,16 @@ export const Board = () => {
   
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
-  
-  // Stan przechowujący aktualnie przeciągane zadanie
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   
-// 1. Sprawdzamy localStorage lub ustawienia systemu Windows/Mac na starcie
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme) {
       return savedTheme === 'dark';
     }
-    // Jeśli użytkownik jest tu pierwszy raz, sprawdź czy ma ciemny system
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
-  // 2. Kiedy zmieniamy motyw, zapisujemy go do localStorage
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -60,8 +55,6 @@ export const Board = () => {
 
   const updateMutation = useMutation({
     mutationFn: updateTaskStatus,
-    
-    // OPTYMISTYCZNA AKTUALIZACJA
     onMutate: async ({ taskId, status }) => {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const previousTasks = queryClient.getQueryData<Task[]>(['tasks', projectId]);
@@ -75,16 +68,12 @@ export const Board = () => {
 
       return { previousTasks };
     },
-    
-    // OBSŁUGA BŁĘDÓW SERWERA
     onError: (error, variables, context) => {
       if (context?.previousTasks) {
         queryClient.setQueryData(['tasks', projectId], context.previousTasks);
       }
-      console.error("Błąd podczas przenoszenia zadania:", error);
+      console.error("Error moving task:", error);
     },
-    
-    // OSTATECZNE ODŚWIEŻENIE W TLE
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
@@ -97,7 +86,7 @@ export const Board = () => {
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveTask(null); // Ukrywa "latający" klocek
+    setActiveTask(null);
     
     const { active, over } = event;
     if (!over) return;
@@ -156,7 +145,6 @@ export const Board = () => {
           ))}
         </div>
         
-        {/* WARSTWA WIDEO DLA KAFELKA W TRAKCIE DRAG & DROP */}
         <DragOverlay dropAnimation={null}>
           {activeTask ? (
             <TaskCard task={activeTask} onEdit={() => {}} isOverlay />

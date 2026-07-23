@@ -6,6 +6,7 @@ import { createTask, fetchUsers, updateTaskDetails } from '../api/tasks';
 import { useAuthStore } from '../store/useAuthStore';
 import { X } from 'lucide-react';
 import type { Task } from '../types';
+import { toast } from 'sonner';
 
 const taskSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters long"),
@@ -50,7 +51,17 @@ export const TaskForm = ({ onClose, taskToEdit }: TaskFormProps) => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+      
+      if (isEditMode) {
+        toast.success("Task updated successfully!");
+      } else {
+        toast.success("Task created successfully!");
+      }
+      
       onClose();
+    },
+    onError: () => {
+      toast.error("Failed to save task.");
     }
   });
 
