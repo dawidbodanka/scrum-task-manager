@@ -22,4 +22,11 @@ export interface Task {
     } | null;
 }
 
+export interface Project {
+    id: string;
+    name: string;
+    description?: string;
+    createdAt?: string;
+}
+
 export const isTypesFileLoaded = true;

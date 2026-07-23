@@ -6,7 +6,7 @@ import { fetchTasks, updateTaskStatus } from '../api/tasks';
 import type { TaskStatus, Task } from '../types';
 import { Column } from './Column';
 import { TaskForm } from './TaskForm';
-import { Plus, Moon, Sun } from 'lucide-react';
+import { Plus, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { TaskCard } from './TaskCard';
 
 const COLUMNS: { id: TaskStatus; title: string }[] = [
@@ -24,6 +24,7 @@ const PRIORITY_WEIGHT: Record<string, number> = {
 
 export const Board = () => {
   const projectId = useAuthStore((state) => state.projectId);
+  const setProjectId = useAuthStore((state) => state.setProjectId);
   const queryClient = useQueryClient();
   
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -50,12 +51,15 @@ export const Board = () => {
 
   const { data: tasks, isLoading, error } = useQuery({
     queryKey: ['tasks', projectId],
-    queryFn: () => fetchTasks(projectId),
+    // Dont fetch tasks if projectId is null, return empty array instead
+    queryFn: () => projectId ? fetchTasks(projectId) : Promise.resolve([]),
+    enabled: !!projectId,
   });
 
   const updateMutation = useMutation({
     mutationFn: updateTaskStatus,
     onMutate: async ({ taskId, status }) => {
+      if (!projectId) return;
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const previousTasks = queryClient.getQueryData<Task[]>(['tasks', projectId]);
 
@@ -69,13 +73,15 @@ export const Board = () => {
       return { previousTasks };
     },
     onError: (error, variables, context) => {
-      if (context?.previousTasks) {
+      if (context?.previousTasks && projectId) {
         queryClient.setQueryData(['tasks', projectId], context.previousTasks);
       }
       console.error("Error moving task:", error);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+      if (projectId) {
+        queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+      }
     },
   });
 
@@ -107,8 +113,20 @@ export const Board = () => {
     <div className="w-full h-screen bg-gray-50 dark:bg-gray-900 transition-colors flex flex-col font-sans">
       
       <div className="p-6 md:p-8 flex justify-between items-center flex-shrink-0">
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Sprint Board</h1>
         
+        {/* Left site */}
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setProjectId(null)}
+            className="p-2 -ml-2 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            title="Back to projects"
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Sprint Board</h1>
+        </div>
+        
+        {/* Right site */}
         <div className="flex items-center gap-4">
           <button 
             onClick={() => setIsDarkMode(!isDarkMode)}

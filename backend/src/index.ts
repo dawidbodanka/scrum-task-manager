@@ -26,7 +26,7 @@ const requireProjectRole = (allowedRoles: string[]) => {
 
             if (!userId || !projectId) {
                 res.status(400).json({ error: "Missing userId or projectId" });
-                return; 
+                return;
             }
 
             // check if the user has one of the allowed roles for the project
@@ -45,7 +45,7 @@ const requireProjectRole = (allowedRoles: string[]) => {
                 res.status(403).json({ error: "User does not have the required role" });
                 return;
             }
-            
+
             next();
         } catch (error) {
             console.error("Error in middleware:", error);
@@ -56,23 +56,23 @@ const requireProjectRole = (allowedRoles: string[]) => {
 
 // ============================= TEST ENDOINT =============================
 app.get('/', async (req, res) => {
-  try {
-    const usersCount = await prisma.user.count();
-    res.json({ 
-      message: 'Server is running on port ' + PORT + '!', 
-      usersCount 
-    });
-  } catch (error) {
-    console.error("Connection error:", error);
-    res.status(500).json({ error: "Cannot connect to the database" });
-  }
+    try {
+        const usersCount = await prisma.user.count();
+        res.json({
+            message: 'Server is running on port ' + PORT + '!',
+            usersCount
+        });
+    } catch (error) {
+        console.error("Connection error:", error);
+        res.status(500).json({ error: "Cannot connect to the database" });
+    }
 });
 
 
 // ============================= USER ENDPOINTS =============================
 // Get all users (GET /api/users)
 app.get("/api/users", async (req, res) => {
-    try{
+    try {
         const users = await prisma.user.findMany({
             select: { // DONT RETURN PASSWORDS !!!
                 id: true,
@@ -83,7 +83,7 @@ app.get("/api/users", async (req, res) => {
         })
         res.json(users);
     }
-    catch(error){
+    catch (error) {
         console.error("Error fetching users:", error);
         res.status(500).json({ error: "Error fetching users" });
     }
@@ -91,9 +91,9 @@ app.get("/api/users", async (req, res) => {
 
 // Create a new user (POST /api/users)
 app.post("/api/users", async (req, res) => {
-    try{
-        const {name, email, password} = req.body;
-        if(!name || !email || !password){
+    try {
+        const { name, email, password } = req.body;
+        if (!name || !email || !password) {
             return res.status(400).json({ error: "Name, email, and password are required" });
         }
         const newUser = await prisma.user.create({
@@ -122,10 +122,13 @@ app.post("/api/users", async (req, res) => {
 // ============================= PROJECT ENDPOINTS =============================
 // Create a new project (POST /api/projects)
 app.post("/api/projects", async (req, res) => {
-    try{
-        const {name, description, userId} = req.body;
-        if(!name || !description || !userId){
-            return res.status(400).json({ error: "Name, description, and userId are required" });
+    try {
+        const { name, description } = req.body;
+        // ZMIANA: Pobieramy userId z nagłówka, tak samo jak w middleware
+        const userId = req.headers['x-user-id'] as string;
+
+        if (!name || !userId) {
+            return res.status(400).json({ error: "Name and userId (in header) are required" });
         }
         const newProject = await prisma.project.create({
             data: {
@@ -134,7 +137,7 @@ app.post("/api/projects", async (req, res) => {
                 members: {
                     create: {
                         userId: userId,
-                        role: 'ADMIN' // Default role for the creator
+                        role: 'ADMIN'
                     }
                 }
             }
@@ -152,10 +155,12 @@ app.post("/api/projects", async (req, res) => {
 
 // Get all projects assigned to a user (GET /api/projects)
 app.get("/api/projects", async (req, res) => {
-    try{
-        const userId = req.query.userId as string;
-        if(!userId){
-            return res.status(400).json({ error: "userId query parameter is required" });
+    try {
+        // ZMIANA: Pobieramy userId z nagłówka, a nie z req.query
+        const userId = req.headers['x-user-id'] as string;
+
+        if (!userId) {
+            return res.status(400).json({ error: "x-user-id header is required" });
         }
         const projects = await prisma.project.findMany({
             where: {
@@ -181,10 +186,10 @@ app.get("/api/projects", async (req, res) => {
 // ============================= TASK ENDPOINTS =============================
 //Get all tasks for a specific project (GET /api/tasks)
 app.get("/api/tasks", async (req, res) => {
-    try{
+    try {
         const projectId = req.query.projectId as string;
 
-        if(!projectId){
+        if (!projectId) {
             return res.status(400).json({ error: "projectId query parameter is required" });
         }
 
@@ -207,10 +212,10 @@ app.get("/api/tasks", async (req, res) => {
 
 // Create a new task (POST /api/tasks)
 app.post("/api/tasks", requireProjectRole(['ADMIN']), async (req, res) => {
-    try{
-        const {title, description, priority, projectId, assigneeId} = req.body;
+    try {
+        const { title, description, priority, projectId, assigneeId } = req.body;
 
-        if(!title || !projectId){
+        if (!title || !projectId) {
             return res.status(400).json({ error: "Title and projectId are required" });
         }
 
@@ -236,21 +241,21 @@ app.post("/api/tasks", requireProjectRole(['ADMIN']), async (req, res) => {
 
 // Update task (PATCH /api/tasks/:id)
 app.patch("/api/tasks/:id", async (req, res) => {
-    try{
-     const {id} = req.params;
-     const { status, assigneeId, title, description, priority } = req.body;
-     
-     const updatedTask = await prisma.task.update({
-        where: { id: id },
-        data: {
-            status,
-            assigneeId,
-            title,
-            description,
-            priority
-        }
-     })
-     res.json(updatedTask);
+    try {
+        const { id } = req.params;
+        const { status, assigneeId, title, description, priority } = req.body;
+
+        const updatedTask = await prisma.task.update({
+            where: { id: id },
+            data: {
+                status,
+                assigneeId,
+                title,
+                description,
+                priority
+            }
+        })
+        res.json(updatedTask);
     }
     catch (error) {
         console.error("Error updating task:", error);
@@ -260,8 +265,8 @@ app.patch("/api/tasks/:id", async (req, res) => {
 
 // Delete task (DELETE /api/tasks/:id)
 app.delete("/api/tasks/:id", async (req, res) => {
-    try{
-        const {id} = req.params;
+    try {
+        const { id } = req.params;
         await prisma.task.delete({
             where: { id: id }
         });
@@ -277,5 +282,5 @@ app.delete("/api/tasks/:id", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`Server is running on http://localhost:${PORT}`);
 });
