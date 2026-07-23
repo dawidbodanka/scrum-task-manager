@@ -10,3 +10,8 @@ export const createProject = async (project: Omit<Project, 'id' | 'createdAt'>):
     const response = await apiClient.post('/projects', project);
     return response.data;
 }
+
+export const deleteProject = async (id: string) => {
+    const response = await apiClient.delete(`/projects/${id}`);
+    return response.data;
+};

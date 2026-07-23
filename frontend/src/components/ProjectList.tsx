@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchProjects, createProject } from '../api/projects';
+import { fetchProjects, createProject, deleteProject } from '../api/projects';
 import { useAuthStore } from '../store/useAuthStore';
-import { Folder, Plus, Moon, Sun, Loader2 } from 'lucide-react';
+import { Folder, Plus, Moon, Sun, Loader2, LogOut, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const ProjectList = () => {
-  const setProjectId = useAuthStore(state => state.setProjectId);
+  const { setProjectId, logout, user } = useAuthStore();
   const queryClient = useQueryClient();
   const [newProjectName, setNewProjectName] = useState('');
   
@@ -32,7 +32,7 @@ export const ProjectList = () => {
   });
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createProject({ name }),
+    mutationFn: (name: string) => createProject({ name, description: 'Workspace' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       setNewProjectName('');
@@ -43,10 +43,28 @@ export const ProjectList = () => {
     }
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteProject,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      toast.success('Project deleted successfully!');
+    },
+    onError: () => {
+      toast.error('Failed to delete project. Make sure you are an admin.');
+    }
+  });
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProjectName.trim()) return;
     createMutation.mutate(newProjectName);
+  };
+
+  const handleDelete = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // Zapobiega kliknięciu w projekt (wejściu do tablicy)
+    if (confirm("Are you sure you want to delete this project and all its tasks?")) {
+      deleteMutation.mutate(id);
+    }
   };
 
   return (
@@ -57,14 +75,26 @@ export const ProjectList = () => {
         <div className="flex justify-between items-center mb-12">
           <div>
             <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">My Workspaces</h1>
-            <p className="text-gray-500 dark:text-gray-400">Select a project to view its sprint board.</p>
+            <p className="text-gray-500 dark:text-gray-400">
+              Welcome back, <span className="font-semibold text-gray-800 dark:text-gray-200">{user?.name}</span>. Select a project.
+            </p>
           </div>
-          <button 
-            onClick={toggleTheme}
-            className="p-3 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-800 rounded-full transition-colors"
-          >
-            {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={toggleTheme}
+              className="p-2.5 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              title="Toggle Theme"
+            >
+              {isDarkMode ? <Sun size={22} /> : <Moon size={22} />}
+            </button>
+            <button 
+              onClick={logout}
+              className="flex items-center gap-2 p-2.5 px-4 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors font-medium"
+            >
+              <LogOut size={20} />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -103,20 +133,31 @@ export const ProjectList = () => {
               <button
                 key={project.id}
                 onClick={() => setProjectId(project.id)}
-                className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700 flex flex-col text-left transition-all hover:-translate-y-1 group"
+                className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700 flex flex-col text-left transition-all hover:-translate-y-1 group relative"
               >
-                <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-50 group-hover:text-blue-600 dark:group-hover:bg-blue-900/30 dark:group-hover:text-blue-400 transition-colors">
-                  <Folder size={20} />
+                <div className="flex justify-between items-start w-full mb-4">
+                  <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg flex items-center justify-center group-hover:bg-blue-50 group-hover:text-blue-600 dark:group-hover:bg-blue-900/30 dark:group-hover:text-blue-400 transition-colors">
+                    <Folder size={20} />
+                  </div>
+                  
+                  {/* DELETE BUTTON */}
+                  <div 
+                    onClick={(e) => handleDelete(e, project.id)}
+                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                    title="Delete project"
+                  >
+                    <Trash2 size={18} />
+                  </div>
                 </div>
+                
                 <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-1">{project.name}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-auto pt-2">
                   Open board &rarr;
                 </p>
               </button>
             ))
           )}
         </div>
-
       </div>
     </div>
   );

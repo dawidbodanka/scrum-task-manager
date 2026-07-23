@@ -1,16 +1,38 @@
 import { create } from 'zustand';
 
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
 interface AuthState {
-  userId: string;
+  token: string | null;
+  user: User | null;
   projectId: string | null;
-  setUserId: (id: string) => void;
+
+  login: (token: string, user: User) => void;
+  logout: () => void;
   setProjectId: (id: string | null) => void;
 }
 
-export const useAuthStore = create<AuthState>()((set) => ({
-  userId: '28d81dbb-3fea-4e0d-a451-80ebf4e6585b',
-  projectId: null, // Initialize projectId as null
+export const useAuthStore = create<AuthState>((set) => ({
+  // Pobieramy dane z pamięci przeglądarki przy starcie aplikacji
+  token: localStorage.getItem('token'),
+  user: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user') as string) : null,
+  projectId: null,
 
-  setUserId: (id) => set({ userId: id }),
+  login: (token, user) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+    set({ token, user });
+  },
+
+  logout: () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    set({ token: null, user: null, projectId: null });
+  },
+
   setProjectId: (id) => set({ projectId: id }),
 }));
