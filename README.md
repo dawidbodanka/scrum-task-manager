@@ -75,6 +75,22 @@ The easiest way to run the application is using Docker. You don't need to instal
 *Note: On the first run, the backend container automatically pushes the Prisma schema to the PostgreSQL database (`npx prisma db push`). No manual migrations are required!*
 
 ---
+---
+
+### Demo Accounts (Auto-Seeded)
+On the first run, the backend container automatically pushes the Prisma schema to the database and injects sample data (users, a project, and tasks) so you can test the application immediately. No manual migrations required!
+
+Use the following credentials to explore the application and test the RBAC rules:
+
+**Admin Account** *(Full access: create tasks, manage users, delete projects)*
+* **Email:** `admin@scrum.com`
+* **Password:** `Password123!`
+
+**Developer Account** *(Restricted access: can only update task status and self-assign)*
+* **Email:** `dev@scrum.com`
+* **Password:** `Password123!`
+
+---
 
 ## Architecture Highlights
 
