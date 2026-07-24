@@ -17,7 +17,7 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  // Pobieramy dane z pamięci przeglądarki przy starcie aplikacji
+  // On initialization, load token and user from localStorage if they exist
   token: localStorage.getItem('token'),
   user: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user') as string) : null,
   projectId: null,

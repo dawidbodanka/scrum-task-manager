@@ -1,6 +1,8 @@
+version: '3.8'
+
 services:
+  # 1. PostgreSQL Database
   db:
-    # Używamy lekkiej wersji 'alpine', żeby kontener szybko się pobierał i mało ważył
     image: postgres:16-alpine
     container_name: scrum_postgres
     restart: always
@@ -9,11 +11,45 @@ services:
       POSTGRES_PASSWORD: mysecretpassword
       POSTGRES_DB: scrum_db
     ports:
-      # Mapowanie portów: "port_na_twoim_komputerze : port_wewnątrz_kontenera"
       - "5432:5432"
     volumes:
-      # To jest kluczowe! Dzięki temu nie stracisz danych po wyłączeniu kontenera
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d scrum_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
+  # 2. Node.js Backend
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskmanager-backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:mysecretpassword@db:5432/scrum_db
+      - JWT_SECRET=super_secret_jwt_key_123
+      - PORT=3000
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma db push && npm run dev"
+
+  # 3. React Frontend (Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: taskmanager-frontend
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+# Define persistent volumes for PostgreSQL data
 volumes:
   postgres_data:

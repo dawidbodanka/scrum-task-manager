@@ -34,7 +34,6 @@ export const fetchUsers = async (): Promise<User[]> => {
     return response.data;
 };
 
-// --- ADD THIS FUNCTION ---
 export const updateTaskDetails = async ({ taskId, data }: { taskId: string; data: Partial<Task> }) => {
     const response = await apiClient.patch(`/tasks/${taskId}`, data);
     return response.data;

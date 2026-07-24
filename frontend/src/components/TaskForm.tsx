@@ -1,10 +1,17 @@
+// ============================================================================
+// TASK FORM MODAL COMPONENT
+// ============================================================================
+// A dual-purpose modal used for both Creating and Editing tasks.
+// Implements strict Frontend RBAC (Role-Based Access Control) to prevent
+// 'DEVELOPER' users from mutating locked fields (Title, Description, Priority)
+// while allowing them to update the Status and self-assign tasks.
+
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { apiClient } from '../api/axios';
 import { toast } from 'sonner';
-// Added Priority to the imports
 import type { Task, TaskStatus, Priority, Role, ProjectMember } from '../types';
 
 interface TaskFormProps {
@@ -17,9 +24,16 @@ interface TaskFormProps {
 export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: TaskFormProps) => {
     const { projectId, user } = useAuthStore();
     const queryClient = useQueryClient();
+    
+    // Determine form mode (Create vs Edit)
     const isEditing = !!taskToEdit;
+    
+    // RBAC Flag: Used to disable specific inputs for non-admin users
     const isDeveloper = currentUserRole === 'DEVELOPER';
 
+    // --------------------------------------------------------------------------
+    // FORM STATE
+    // --------------------------------------------------------------------------
     const [formData, setFormData] = useState({
         title: taskToEdit?.title || '',
         description: taskToEdit?.description || '',
@@ -28,7 +42,11 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
         assigneeId: taskToEdit?.assigneeId || ''
     });
 
-    // Save mutation (Create or Update)
+    // --------------------------------------------------------------------------
+    // MUTATIONS
+    // --------------------------------------------------------------------------
+    
+    // Handles both POST (Create) and PATCH (Update) based on the current mode
     const saveMutation = useMutation({
         mutationFn: async (data: typeof formData) => {
             if (isEditing) {
@@ -40,6 +58,7 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
             }
         },
         onSuccess: () => {
+            // Force board refresh to reflect new/updated data
             queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
             toast.success(isEditing ? 'Task updated!' : 'Task created!');
             onClose();
@@ -54,10 +73,14 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
         saveMutation.mutate(formData);
     };
 
+    // --------------------------------------------------------------------------
+    // RENDER
+    // --------------------------------------------------------------------------
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
             <div className="bg-white dark:bg-gray-800 w-full max-w-lg rounded-2xl shadow-xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
                 
+                {/* Modal Header */}
                 <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                         {isEditing ? (isDeveloper ? 'View Task' : 'Edit Task') : 'Create New Task'}
@@ -69,7 +92,7 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
 
                 <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-5">
                     
-                    {/* Title */}
+                    {/* Title Field - Disabled for Developers */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
                         <input
@@ -82,7 +105,7 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
                         />
                     </div>
 
-                    {/* Description */}
+                    {/* Description Field - Disabled for Developers */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
                         <textarea
@@ -95,13 +118,12 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Priority */}
+                        {/* Priority Field - Disabled for Developers */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
                             <select
                                 disabled={isDeveloper}
                                 value={formData.priority}
-                                // Fix: Explicitly cast to Priority type
                                 onChange={(e) => setFormData({ ...formData, priority: e.target.value as Priority })}
                                 className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                             >
@@ -111,7 +133,7 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
                             </select>
                         </div>
 
-                        {/* Status (Developers CAN edit this inside the form too) */}
+                        {/* Status Field - Editable by Everyone */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
                             <select
@@ -127,10 +149,11 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
                         </div>
                     </div>
 
-                    {/* Assignee Field */}
+                    {/* Assignee Field - RBAC Conditional Rendering */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assignee</label>
                         {isDeveloper ? (
+                            // Developers can only see who is assigned, or assign the task to themselves
                             <div className="flex items-center gap-3">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">
                                     {formData.assigneeId 
@@ -148,6 +171,7 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
                                 )}
                             </div>
                         ) : (
+                            // Admins can assign the task to anyone in the project
                             <select
                                 value={formData.assigneeId}
                                 onChange={(e) => setFormData({ ...formData, assigneeId: e.target.value })}
@@ -161,6 +185,7 @@ export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: Task
                         )}
                     </div>
 
+                    {/* Action Buttons */}
                     <div className="mt-4 flex justify-end gap-3">
                         <button
                             type="button"

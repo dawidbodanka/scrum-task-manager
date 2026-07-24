@@ -1,3 +1,5 @@
+// Main application component
+
 import { Board } from './components/Board';
 import { ProjectList } from './components/ProjectList';
 import { AuthScreen } from './components/AuthScreen';

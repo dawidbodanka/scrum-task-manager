@@ -1,3 +1,7 @@
+// ============================================================================
+// MAIN EXPRESS API SERVER
+// ============================================================================
+
 import 'dotenv/config';
 import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
@@ -7,19 +11,32 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
+// ----------------------------------------------------------------------------
+// 1. CONFIGURATION & DATABASE SETUP
+// ----------------------------------------------------------------------------
 const JWT_SECRET = process.env.JWT_SECRET || 'default_secret';
+
+// Initialize PostgreSQL connection pool
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Use Prisma's pg adapter for optimized connection pooling
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 const app = express();
 
+// Standard middleware for CORS and JSON body parsing
 app.use(cors());
 app.use(express.json());
 
-// ============================= MIDDLEWARE =============================
+// ============================================================================
+// 2. SECURITY MIDDLEWARES
+// ============================================================================
 
-// 1. Main guard - verifies JWT token and extracts user ID
+/**
+ * Authentication Guard
+ * Intercepts incoming requests, extracts the JWT token from the Authorization header,
+ * verifies it, and injects the extracted userId into the request headers for downstream use.
+ */
 const authenticateToken = (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -38,11 +55,16 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction): voi
     }
 };
 
-// 2. Project guard - checks if the user has the required role in the project
+/**
+ * Role-Based Access Control (RBAC) Guard
+ * It checks if the authenticated user is a member of the requested project AND has one of the allowed roles.
+ * allowedRoles - Array of roles that are permitted to access the route (e.g., ['ADMIN', 'DEVELOPER'])
+ */
 const requireProjectRole = (allowedRoles: string[]) => {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const userId = req.headers['x-user-id'] as string;
+
             const projectId = (req.body?.projectId || req.query?.projectId) as string;
 
             if (!userId || !projectId) {
@@ -54,17 +76,19 @@ const requireProjectRole = (allowedRoles: string[]) => {
                 where: { userId_projectId: { userId, projectId } }
             });
 
+            // Reject if user is not part of the project at all
             if (!membership) {
                 res.status(403).json({ error: "User is not a member of this project" });
                 return;
             }
 
+            // Reject if user's role is not included in the allowed list
             if (!allowedRoles.includes(membership.role)) {
                 res.status(403).json({ error: "User does not have the required role" });
                 return;
             }
 
-            next();
+            next(); // User is authorized, proceed to the endpoint controller
         } catch (error) {
             console.error("Error in project middleware:", error);
             res.status(500).json({ error: "Error verifying project permissions" });
@@ -72,7 +96,11 @@ const requireProjectRole = (allowedRoles: string[]) => {
     }
 }
 
-// ============================= USER ENDPOINTS =============================
+// ============================================================================
+// 3. USER ENDPOINTS
+// ============================================================================
+
+// Fetch all users (Accessible only to authenticated users; no role restrictions)
 app.get("/api/users", authenticateToken, async (req, res) => {
     try {
         const users = await prisma.user.findMany({
@@ -84,12 +112,17 @@ app.get("/api/users", authenticateToken, async (req, res) => {
     }
 })
 
-// ============================= AUTHENTICATION =============================
+// ============================================================================
+// 4. AUTHENTICATION ENDPOINTS
+// ============================================================================
+
+// Register a new user with password hashing and complexity validation
 app.post("/api/auth/register", async (req, res) => {
     try {
         const { name, email, password } = req.body;
         if (!name || !email || !password) return res.status(400).json({ error: "Missing fields" });
 
+        // Password must contain at least 8 chars, 1 uppercase, 1 lowercase, and 1 number
         const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
         if (!passwordRegex.test(password)) {
             return res.status(400).json({ error: "Password does not meet complexity requirements." });
@@ -98,6 +131,7 @@ app.post("/api/auth/register", async (req, res) => {
         const existingUser = await prisma.user.findUnique({ where: { email } });
         if (existingUser) return res.status(400).json({ error: "Email already exists" });
 
+        // Hash password before saving to database
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -105,6 +139,7 @@ app.post("/api/auth/register", async (req, res) => {
             data: { name, email, passwordHash: hashedPassword }
         });
 
+        // Generate JWT token for immediate login after registration
         const token = jwt.sign({ userId: newUser.id }, JWT_SECRET, { expiresIn: '7d' });
 
         res.status(201).json({
@@ -117,6 +152,7 @@ app.post("/api/auth/register", async (req, res) => {
     }
 });
 
+// Login existing user
 app.post("/api/auth/login", async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -125,6 +161,7 @@ app.post("/api/auth/login", async (req, res) => {
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
+        // Compare plain text password with stored hash
         const isMatch = await bcrypt.compare(password, user.passwordHash);
         if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
 
@@ -140,7 +177,11 @@ app.post("/api/auth/login", async (req, res) => {
     }
 })
 
-// ============================= PROJECT ENDPOINTS =============================
+// ============================================================================
+// 5. PROJECT ENDPOINTS
+// ============================================================================
+
+// Create a new project. The creator is automatically assigned the 'ADMIN' role.
 app.post("/api/projects", authenticateToken, async (req, res) => {
     try {
         const { name, description } = req.body;
@@ -163,12 +204,14 @@ app.post("/api/projects", authenticateToken, async (req, res) => {
     }
 })
 
+// Fetch all projects where the authenticated user is a member
 app.get("/api/projects", authenticateToken, async (req, res) => {
     try {
         const userId = req.headers['x-user-id'] as string;
         const projects = await prisma.project.findMany({
             where: { members: { some: { userId: userId } } },
             include: {
+                // Include the user's specific role in the response
                 members: { where: { userId: userId }, select: { role: true } }
             }
         });
@@ -178,6 +221,7 @@ app.get("/api/projects", authenticateToken, async (req, res) => {
     }
 })
 
+// Delete a project (Requires ADMIN role verified manually due to route parameter structure)
 app.delete("/api/projects/:id", authenticateToken, async (req, res) => {
     try {
         const projectId = req.params.id as string;
@@ -198,8 +242,11 @@ app.delete("/api/projects/:id", authenticateToken, async (req, res) => {
     }
 });
 
-// ============================= PROJECT MEMBERS =============================
+// ============================================================================
+// 6. PROJECT MEMBERS ENDPOINTS
+// ============================================================================
 
+// List all members of a specific project
 app.get("/api/projects/:id/members", authenticateToken, async (req, res) => {
     try {
         const projectId = req.params.id as string;
@@ -231,6 +278,7 @@ app.get("/api/projects/:id/members", authenticateToken, async (req, res) => {
     }
 });
 
+// Invite a new member to the project (Requires ADMIN)
 app.post("/api/projects/:id/members", authenticateToken, async (req, res) => {
     try {
         const projectId = req.params.id as string;
@@ -260,7 +308,7 @@ app.post("/api/projects/:id/members", authenticateToken, async (req, res) => {
             return res.status(400).json({ error: "User is already a member" });
         }
 
-        // Add them with the DEVELOPER role based on your Prisma schema
+        // New members are assigned the 'DEVELOPER' role by default
         await prisma.projectMember.create({
             data: {
                 userId: userToInvite.id,
@@ -275,6 +323,7 @@ app.post("/api/projects/:id/members", authenticateToken, async (req, res) => {
     }
 });
 
+// Remove a member from the project (Requires ADMIN)
 app.delete("/api/projects/:id/members/:memberId", authenticateToken, async (req, res) => {
     try {
         const projectId = req.params.id as string;
@@ -297,6 +346,7 @@ app.delete("/api/projects/:id/members/:memberId", authenticateToken, async (req,
             return res.status(404).json({ error: "User is not a member" });
         }
 
+        // Prevent admin from accidentally locking themselves out
         if (userId === memberIdToRemove) {
             return res.status(400).json({ error: "You cannot remove yourself" });
         }
@@ -305,7 +355,7 @@ app.delete("/api/projects/:id/members/:memberId", authenticateToken, async (req,
             where: { userId_projectId: { userId: memberIdToRemove, projectId } }
         });
 
-        // Unassign them from all tasks in this project
+        // Clean up: Unassign the removed user from all tasks in this project
         await prisma.task.updateMany({
             where: { projectId: projectId, assigneeId: memberIdToRemove },
             data: { assigneeId: null }
@@ -317,8 +367,11 @@ app.delete("/api/projects/:id/members/:memberId", authenticateToken, async (req,
     }
 });
 
-// ============================= TASK ENDPOINTS =============================
+// ============================================================================
+// 7. TASK ENDPOINTS
+// ============================================================================
 
+// Fetch all tasks for a project (Accessible by both ADMIN and DEVELOPER)
 app.get("/api/tasks", authenticateToken, requireProjectRole(['ADMIN', 'DEVELOPER']), async (req, res) => {
     try {
         const projectId = req.query.projectId as string;
@@ -335,10 +388,9 @@ app.get("/api/tasks", authenticateToken, requireProjectRole(['ADMIN', 'DEVELOPER
     }
 })
 
-// Only ADMIN can create tasks
+// Create a new task (Strictly ADMIN only)
 app.post("/api/tasks", authenticateToken, requireProjectRole(['ADMIN']), async (req, res) => {
     try {
-        // FIX: Extract 'status' from req.body
         const { title, description, priority, status, projectId, assigneeId } = req.body;
 
         if (!title || !projectId) return res.status(400).json({ error: "Title and projectId are required" });
@@ -348,7 +400,7 @@ app.post("/api/tasks", authenticateToken, requireProjectRole(['ADMIN']), async (
                 title,
                 description,
                 priority: priority || 'MEDIUM',
-                status: status || 'TODO', // FIX: Add status to the creation object
+                status: status || 'TODO',
                 projectId,
                 assigneeId: assigneeId || null
             }
@@ -359,6 +411,7 @@ app.post("/api/tasks", authenticateToken, requireProjectRole(['ADMIN']), async (
     }
 })
 
+// Update an existing task (Complex RBAC logic implemented inside)
 app.patch("/api/tasks/:id", authenticateToken, async (req, res) => {
     try {
         const id = req.params.id as string;
@@ -373,14 +426,15 @@ app.patch("/api/tasks/:id", authenticateToken, async (req, res) => {
         });
         if (!membership) return res.status(403).json({ error: "Access denied" });
 
-        // RULES FOR DEVELOPERS
+        // RBAC Business Logic: DEVELOPERS
         if (membership.role === 'DEVELOPER') {
-            // Check if they are trying to assign someone else
+            // Developers cannot reassign tasks to other users
             if (assigneeId !== undefined && assigneeId !== userId && assigneeId !== null) {
                 return res.status(403).json({ error: "Developers can only assign tasks to themselves" });
             }
 
-            // Update ONLY status and assigneeId (ignore title, description, priority changes)
+            // Developers can ONLY update the status (drag & drop) or assign themselves
+            // Title, description, and priority changes sent by a developer are safely ignored
             const updatedTask = await prisma.task.update({
                 where: { id },
                 data: { status, assigneeId }
@@ -388,7 +442,8 @@ app.patch("/api/tasks/:id", authenticateToken, async (req, res) => {
             return res.json(updatedTask);
         }
 
-        // RULES FOR ADMIN (Can update everything)
+        // RBAC Business Logic: ADMINS
+        // Admins have full access to mutate any field on the task
         const updatedTask = await prisma.task.update({
             where: { id },
             data: { status, assigneeId, title, description, priority }
@@ -399,6 +454,7 @@ app.patch("/api/tasks/:id", authenticateToken, async (req, res) => {
     }
 });
 
+// Delete a task (Strictly ADMIN only)
 app.delete("/api/tasks/:id", authenticateToken, async (req, res) => {
     try {
         const id = req.params.id as string;
@@ -411,7 +467,6 @@ app.delete("/api/tasks/:id", authenticateToken, async (req, res) => {
             where: { userId_projectId: { userId, projectId: task.projectId } }
         });
 
-        // Only ADMIN can delete tasks
         if (!membership || membership.role !== 'ADMIN') {
             return res.status(403).json({ error: "Only admins can delete tasks" });
         }
@@ -423,7 +478,9 @@ app.delete("/api/tasks/:id", authenticateToken, async (req, res) => {
     }
 })
 
-// ============================= SERVER =============================
+// ============================================================================
+// 8. SERVER INITIALIZATION
+// ============================================================================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {

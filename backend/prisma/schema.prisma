@@ -1,3 +1,9 @@
+// ============================================================================
+// DATABASE SCHEMA DEFINITION
+// ============================================================================
+// This file defines the PostgreSQL database architecture using Prisma ORM.
+// It implements a multi-tenant SaaS structure with Role-Based Access Control (RBAC).
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,12 +12,17 @@ datasource db {
   provider = "postgresql"
 }
 
-// 1. Enums
+// ============================================================================
+// 1. ENUMS (Static Types)
+// ============================================================================
+
+// Defines the strict permission levels within a specific project
 enum Role {
-  ADMIN
-  DEVELOPER
+  ADMIN       // Full access: manage members, create/edit/delete tasks, manage project
+  DEVELOPER   // Restricted access: can only update task status and self-assign tasks
 }
 
+// Represents board columns
 enum TaskStatus {
   TODO
   IN_PROGRESS
@@ -19,38 +30,43 @@ enum TaskStatus {
   DONE
 }
 
+// Task urgency levels for sorting
 enum Priority {
   LOW
   MEDIUM
   HIGH
 }
 
-// 2. Tables
+// ============================================================================
+// 2. DATA MODELS (Tables)
+// ============================================================================
 
+// Core authentication entity. Represents a registered application user.
 model User {
-  id            String          @id @default(uuid())
-  email         String          @unique
-  passwordHash  String          
-  name          String
-  createdAt     DateTime        @default(now())
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   
+  name         String
+  createdAt    DateTime @default(now())
   
   // Relations
-  projectRoles  ProjectMember[] // In which projects and as which role
-  assignedTasks Task[]          @relation("TaskAssignee") // What are their tasks?
+  projectRoles  ProjectMember[] // Workspaces the user has access to
+  assignedTasks Task[]          @relation("TaskAssignee") // Tasks currently assigned to this user
 }
 
+// The main workspace entity. Each project acts as an isolated board.
 model Project {
-  id          String          @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
   description String?
-  createdAt   DateTime        @default(now())
+  createdAt   DateTime @default(now())
 
   // Relations
-  members     ProjectMember[] // Who can access the project
-  tasks       Task[]          // Tasks in this project
+  members     ProjectMember[] // Users who have been invited to this project
+  tasks       Task[]          // All tasks belonging to this specific project
 }
 
-// Connection table
+// Junction Table (Many-to-Many): Connects Users to Projects with a specific Role.
 model ProjectMember {
   id        String   @id @default(uuid())
   userId    String
@@ -58,14 +74,15 @@ model ProjectMember {
   role      Role     @default(DEVELOPER)
   joinedAt  DateTime @default(now())
 
-  // Foreign keys
+  // Foreign keys with Cascade deletion
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // User can be assigned to certain project only once
+  // A user can only be added to a specific project once
   @@unique([userId, projectId]) 
 }
 
+// The core work item on the board.
 model Task {
   id          String     @id @default(uuid())
   title       String
@@ -75,11 +92,12 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt 
 
-  // Task - project connection
+  // Which project does this task belong to?
   projectId   String
   project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Task - user connection
+  // Who is working on this task? (Optional)
+  // SetNull: If the assigned user is deleted from the system, the task remains but becomes unassigned.
   assigneeId  String?
   assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 }
