@@ -58,7 +58,7 @@ The easiest way to run the application is using Docker. You don't need to instal
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/dawidbodanka/Task-Manager.git
+   git clone https://github.com/dawidbodanka/scrum-task-manager.git
    cd scrum-task-manager
    ```
 
