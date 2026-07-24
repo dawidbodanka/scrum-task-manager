@@ -22,7 +22,7 @@ app.use(express.json());
 // 1. Main guard - verifies JWT token and extracts user ID
 const authenticateToken = (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Format: "Bearer TOKEN"
+    const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
         res.status(401).json({ error: "Access denied. No token provided." });
@@ -30,11 +30,7 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction): voi
     }
 
     try {
-        // Decode the token using our secret
         const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-
-        // OVERWRITE x-user-id with the verified ID from the token.
-        // This ignores any potentially forged ID sent by the client.
         req.headers['x-user-id'] = decoded.userId;
         next();
     } catch (error) {
@@ -42,13 +38,11 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction): voi
     }
 };
 
-// 2. Project guard - checks if the (already verified) user has the required role in the project
+// 2. Project guard - checks if the user has the required role in the project
 const requireProjectRole = (allowedRoles: string[]) => {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const userId = req.headers['x-user-id'] as string;
-
-            // SAFEGUARD: Use optional chaining (?.) to prevent crashes if req.body or req.query is undefined
             const projectId = (req.body?.projectId || req.query?.projectId) as string;
 
             if (!userId || !projectId) {
@@ -78,20 +72,6 @@ const requireProjectRole = (allowedRoles: string[]) => {
     }
 }
 
-// ============================= TEST ENDPOINT =============================
-app.get('/', async (req, res) => {
-    try {
-        const usersCount = await prisma.user.count();
-        res.json({
-            message: 'Server is running on port ' + PORT + '!',
-            usersCount
-        });
-    } catch (error) {
-        console.error("Connection error:", error);
-        res.status(500).json({ error: "Cannot connect to the database" });
-    }
-});
-
 // ============================= USER ENDPOINTS =============================
 app.get("/api/users", authenticateToken, async (req, res) => {
     try {
@@ -99,33 +79,24 @@ app.get("/api/users", authenticateToken, async (req, res) => {
             select: { id: true, name: true, email: true, createdAt: true }
         })
         res.json(users);
-    }
-    catch (error) {
-        console.error("Error fetching users:", error);
+    } catch (error) {
         res.status(500).json({ error: "Error fetching users" });
     }
 })
 
-// ============================= AUTHENTICATION ENDPOINTS =============================
+// ============================= AUTHENTICATION =============================
 app.post("/api/auth/register", async (req, res) => {
     try {
         const { name, email, password } = req.body;
-
-        if (!name || !email || !password) {
-            return res.status(400).json({ error: "Name, email, and password are required" });
-        }
+        if (!name || !email || !password) return res.status(400).json({ error: "Missing fields" });
 
         const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
         if (!passwordRegex.test(password)) {
-            return res.status(400).json({
-                error: "Password must be at least 8 characters long, contain at least one uppercase letter, one lowercase letter, and one number."
-            });
+            return res.status(400).json({ error: "Password does not meet complexity requirements." });
         }
 
         const existingUser = await prisma.user.findUnique({ where: { email } });
-        if (existingUser) {
-            return res.status(400).json({ error: "User with this email already exists" });
-        }
+        if (existingUser) return res.status(400).json({ error: "Email already exists" });
 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -137,32 +108,25 @@ app.post("/api/auth/register", async (req, res) => {
         const token = jwt.sign({ userId: newUser.id }, JWT_SECRET, { expiresIn: '7d' });
 
         res.status(201).json({
-            message: "User registered successfully",
+            message: "User registered",
             token,
             user: { id: newUser.id, name: newUser.name, email: newUser.email }
         });
     } catch (error) {
-        console.error("Error registering user:", error);
-        res.status(500).json({ error: "Error during registration" });
+        res.status(500).json({ error: "Registration error" });
     }
 });
 
 app.post("/api/auth/login", async (req, res) => {
     try {
         const { email, password } = req.body;
-        if (!email || !password) {
-            return res.status(400).json({ error: "Email and password are required" });
-        }
+        if (!email || !password) return res.status(400).json({ error: "Missing fields" });
 
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user) {
-            return res.status(400).json({ error: "Invalid email or password" });
-        }
+        if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
         const isMatch = await bcrypt.compare(password, user.passwordHash);
-        if (!isMatch) {
-            return res.status(400).json({ error: "Invalid email or password" });
-        }
+        if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
 
         const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -171,10 +135,8 @@ app.post("/api/auth/login", async (req, res) => {
             user: { id: user.id, name: user.name, email: user.email },
             token
         });
-    }
-    catch (error) {
-        console.error("Error during login:", error);
-        res.status(500).json({ error: "Error during login" });
+    } catch (error) {
+        res.status(500).json({ error: "Login error" });
     }
 })
 
@@ -184,9 +146,8 @@ app.post("/api/projects", authenticateToken, async (req, res) => {
         const { name, description } = req.body;
         const userId = req.headers['x-user-id'] as string;
 
-        if (!name) {
-            return res.status(400).json({ error: "Name is required" });
-        }
+        if (!name) return res.status(400).json({ error: "Name is required" });
+
         const newProject = await prisma.project.create({
             data: {
                 name,
@@ -197,9 +158,7 @@ app.post("/api/projects", authenticateToken, async (req, res) => {
             }
         });
         res.status(201).json({ project: newProject });
-    }
-    catch (error) {
-        console.error("Error creating project:", error);
+    } catch (error) {
         res.status(500).json({ error: "Error creating project" });
     }
 })
@@ -207,7 +166,6 @@ app.post("/api/projects", authenticateToken, async (req, res) => {
 app.get("/api/projects", authenticateToken, async (req, res) => {
     try {
         const userId = req.headers['x-user-id'] as string;
-
         const projects = await prisma.project.findMany({
             where: { members: { some: { userId: userId } } },
             include: {
@@ -215,16 +173,13 @@ app.get("/api/projects", authenticateToken, async (req, res) => {
             }
         });
         res.json(projects);
-    }
-    catch (error) {
-        console.error("Error fetching projects:", error);
+    } catch (error) {
         res.status(500).json({ error: "Error fetching projects" });
     }
 })
 
 app.delete("/api/projects/:id", authenticateToken, async (req, res) => {
     try {
-        // Explicit cast to string
         const projectId = req.params.id as string;
         const userId = req.headers['x-user-id'] as string;
 
@@ -239,13 +194,132 @@ app.delete("/api/projects/:id", authenticateToken, async (req, res) => {
         await prisma.project.delete({ where: { id: projectId } });
         res.json({ message: "Project deleted successfully" });
     } catch (error) {
-        console.error("Error deleting project:", error);
         res.status(500).json({ error: "Error deleting project" });
     }
 });
 
+// ============================= PROJECT MEMBERS =============================
+
+app.get("/api/projects/:id/members", authenticateToken, async (req, res) => {
+    try {
+        const projectId = req.params.id as string;
+        const userId = req.headers['x-user-id'] as string;
+
+        const membership = await prisma.projectMember.findUnique({
+            where: { userId_projectId: { userId, projectId } }
+        });
+
+        if (!membership) return res.status(403).json({ error: "Access denied" });
+
+        const members = await prisma.projectMember.findMany({
+            where: { projectId },
+            include: {
+                user: { select: { id: true, name: true, email: true } }
+            }
+        });
+
+        const formattedMembers = members.map(m => ({
+            id: m.user.id,
+            name: m.user.name,
+            email: m.user.email,
+            role: m.role
+        }));
+
+        res.json(formattedMembers);
+    } catch (error) {
+        res.status(500).json({ error: "Error fetching members" });
+    }
+});
+
+app.post("/api/projects/:id/members", authenticateToken, async (req, res) => {
+    try {
+        const projectId = req.params.id as string;
+        const userId = req.headers['x-user-id'] as string;
+        const { email } = req.body;
+
+        if (!email) return res.status(400).json({ error: "Email is required" });
+
+        const requesterMembership = await prisma.projectMember.findUnique({
+            where: { userId_projectId: { userId, projectId } }
+        });
+
+        if (!requesterMembership || requesterMembership.role !== 'ADMIN') {
+            return res.status(403).json({ error: "Only admins can invite new members" });
+        }
+
+        const userToInvite = await prisma.user.findUnique({ where: { email } });
+        if (!userToInvite) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const existingMember = await prisma.projectMember.findUnique({
+            where: { userId_projectId: { userId: userToInvite.id, projectId } }
+        });
+
+        if (existingMember) {
+            return res.status(400).json({ error: "User is already a member" });
+        }
+
+        // Add them with the DEVELOPER role based on your Prisma schema
+        await prisma.projectMember.create({
+            data: {
+                userId: userToInvite.id,
+                projectId,
+                role: 'DEVELOPER'
+            }
+        });
+
+        res.status(201).json({ message: "Member added successfully" });
+    } catch (error) {
+        res.status(500).json({ error: "Error adding member" });
+    }
+});
+
+app.delete("/api/projects/:id/members/:memberId", authenticateToken, async (req, res) => {
+    try {
+        const projectId = req.params.id as string;
+        const memberIdToRemove = req.params.memberId as string;
+        const userId = req.headers['x-user-id'] as string;
+
+        const requesterMembership = await prisma.projectMember.findUnique({
+            where: { userId_projectId: { userId, projectId } }
+        });
+
+        if (!requesterMembership || requesterMembership.role !== 'ADMIN') {
+            return res.status(403).json({ error: "Only admins can remove members" });
+        }
+
+        const targetMembership = await prisma.projectMember.findUnique({
+            where: { userId_projectId: { userId: memberIdToRemove, projectId } }
+        });
+
+        if (!targetMembership) {
+            return res.status(404).json({ error: "User is not a member" });
+        }
+
+        if (userId === memberIdToRemove) {
+            return res.status(400).json({ error: "You cannot remove yourself" });
+        }
+
+        await prisma.projectMember.delete({
+            where: { userId_projectId: { userId: memberIdToRemove, projectId } }
+        });
+
+        // Unassign them from all tasks in this project
+        await prisma.task.updateMany({
+            where: { projectId: projectId, assigneeId: memberIdToRemove },
+            data: { assigneeId: null }
+        });
+
+        res.json({ message: "Member removed successfully" });
+    } catch (error) {
+        res.status(500).json({ error: "Error removing member" });
+    }
+});
+
 // ============================= TASK ENDPOINTS =============================
-app.get("/api/tasks", authenticateToken, requireProjectRole(['ADMIN', 'MEMBER']), async (req, res) => {
+
+app.get("/api/tasks", authenticateToken, requireProjectRole(['ADMIN', 'DEVELOPER']), async (req, res) => {
     try {
         const projectId = req.query.projectId as string;
         const tasks = await prisma.task.findMany({
@@ -256,39 +330,37 @@ app.get("/api/tasks", authenticateToken, requireProjectRole(['ADMIN', 'MEMBER'])
             }
         })
         res.json(tasks);
-    }
-    catch (error) {
+    } catch (error) {
         res.status(500).json({ error: "Error fetching tasks" });
     }
 })
 
-app.post("/api/tasks", authenticateToken, requireProjectRole(['ADMIN', 'MEMBER']), async (req, res) => {
+// Only ADMIN can create tasks
+app.post("/api/tasks", authenticateToken, requireProjectRole(['ADMIN']), async (req, res) => {
     try {
-        const { title, description, priority, projectId, assigneeId } = req.body;
+        // FIX: Extract 'status' from req.body
+        const { title, description, priority, status, projectId, assigneeId } = req.body;
 
-        if (!title || !projectId) {
-            return res.status(400).json({ error: "Title and projectId are required" });
-        }
+        if (!title || !projectId) return res.status(400).json({ error: "Title and projectId are required" });
 
         const newTask = await prisma.task.create({
             data: {
                 title,
                 description,
                 priority: priority || 'MEDIUM',
+                status: status || 'TODO', // FIX: Add status to the creation object
                 projectId,
                 assigneeId: assigneeId || null
             }
         })
         res.status(201).json({ task: newTask });
-    }
-    catch (error) {
+    } catch (error) {
         res.status(500).json({ error: "Error creating task" });
     }
 })
 
 app.patch("/api/tasks/:id", authenticateToken, async (req, res) => {
     try {
-        // Explicit cast to string
         const id = req.params.id as string;
         const { status, assigneeId, title, description, priority } = req.body;
         const userId = req.headers['x-user-id'] as string;
@@ -301,20 +373,34 @@ app.patch("/api/tasks/:id", authenticateToken, async (req, res) => {
         });
         if (!membership) return res.status(403).json({ error: "Access denied" });
 
+        // RULES FOR DEVELOPERS
+        if (membership.role === 'DEVELOPER') {
+            // Check if they are trying to assign someone else
+            if (assigneeId !== undefined && assigneeId !== userId && assigneeId !== null) {
+                return res.status(403).json({ error: "Developers can only assign tasks to themselves" });
+            }
+
+            // Update ONLY status and assigneeId (ignore title, description, priority changes)
+            const updatedTask = await prisma.task.update({
+                where: { id },
+                data: { status, assigneeId }
+            });
+            return res.json(updatedTask);
+        }
+
+        // RULES FOR ADMIN (Can update everything)
         const updatedTask = await prisma.task.update({
-            where: { id: id },
+            where: { id },
             data: { status, assigneeId, title, description, priority }
         })
         res.json(updatedTask);
-    }
-    catch (error) {
+    } catch (error) {
         res.status(500).json({ error: "Error updating task" });
     }
 });
 
 app.delete("/api/tasks/:id", authenticateToken, async (req, res) => {
     try {
-        // Explicit cast to string
         const id = req.params.id as string;
         const userId = req.headers['x-user-id'] as string;
 
@@ -325,14 +411,14 @@ app.delete("/api/tasks/:id", authenticateToken, async (req, res) => {
             where: { userId_projectId: { userId, projectId: task.projectId } }
         });
 
+        // Only ADMIN can delete tasks
         if (!membership || membership.role !== 'ADMIN') {
             return res.status(403).json({ error: "Only admins can delete tasks" });
         }
 
-        await prisma.task.delete({ where: { id: id } });
+        await prisma.task.delete({ where: { id } });
         res.json({ message: "Task deleted successfully" });
-    }
-    catch (error) {
+    } catch (error) {
         res.status(500).json({ error: "Error deleting task" });
     }
 })

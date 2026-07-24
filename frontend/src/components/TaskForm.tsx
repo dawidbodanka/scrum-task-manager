@@ -1,129 +1,184 @@
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTask, fetchUsers, updateTaskDetails } from '../api/tasks';
-import { useAuthStore } from '../store/useAuthStore';
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import type { Task } from '../types';
+import { useAuthStore } from '../store/useAuthStore';
+import { apiClient } from '../api/axios';
 import { toast } from 'sonner';
-
-const taskSchema = z.object({
-  title: z.string().min(3, "Title must be at least 3 characters long"),
-  description: z.string().optional(),
-  priority: z.enum(['LOW', 'MEDIUM', 'HIGH']),
-  assigneeId: z.string().optional(),
-});
-
-type TaskFormValues = z.infer<typeof taskSchema>;
+// Added Priority to the imports
+import type { Task, TaskStatus, Priority, Role, ProjectMember } from '../types';
 
 interface TaskFormProps {
-  onClose: () => void;
-  taskToEdit?: Task | null;
+    onClose: () => void;
+    taskToEdit?: Task | null;
+    currentUserRole: Role;
+    members: ProjectMember[];
 }
 
-export const TaskForm = ({ onClose, taskToEdit }: TaskFormProps) => {
-  const projectId = useAuthStore(state => state.projectId);
-  const queryClient = useQueryClient();
-  const isEditMode = !!taskToEdit;
+export const TaskForm = ({ onClose, taskToEdit, currentUserRole, members }: TaskFormProps) => {
+    const { projectId, user } = useAuthStore();
+    const queryClient = useQueryClient();
+    const isEditing = !!taskToEdit;
+    const isDeveloper = currentUserRole === 'DEVELOPER';
 
-  const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: fetchUsers });
+    const [formData, setFormData] = useState({
+        title: taskToEdit?.title || '',
+        description: taskToEdit?.description || '',
+        priority: taskToEdit?.priority || 'MEDIUM',
+        status: taskToEdit?.status || 'TODO',
+        assigneeId: taskToEdit?.assigneeId || ''
+    });
 
-  const { register, handleSubmit, formState: { errors } } = useForm<TaskFormValues>({
-    resolver: zodResolver(taskSchema),
-    defaultValues: taskToEdit ? {
-      title: taskToEdit.title,
-      description: taskToEdit.description || '',
-      priority: taskToEdit.priority,
-      assigneeId: taskToEdit.assigneeId || ''
-    } : { priority: 'MEDIUM', assigneeId: '' }
-  });
+    // Save mutation (Create or Update)
+    const saveMutation = useMutation({
+        mutationFn: async (data: typeof formData) => {
+            if (isEditing) {
+                const res = await apiClient.patch(`/tasks/${taskToEdit.id}`, data);
+                return res.data;
+            } else {
+                const res = await apiClient.post('/tasks', { ...data, projectId });
+                return res.data;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+            toast.success(isEditing ? 'Task updated!' : 'Task created!');
+            onClose();
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error || 'Failed to save task');
+        }
+    });
 
-  const saveMutation = useMutation({
-    mutationFn: (data: TaskFormValues) => {
-      const parsedAssignee = data.assigneeId === '' ? null : data.assigneeId;
-      const payload = { ...data, assigneeId: parsedAssignee };
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        saveMutation.mutate(formData);
+    };
 
-      if (isEditMode) {
-        return updateTaskDetails({ taskId: taskToEdit.id, data: payload });
-      }
-      return createTask({ ...payload, projectId });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
-      
-      if (isEditMode) {
-        toast.success("Task updated successfully!");
-      } else {
-        toast.success("Task created successfully!");
-      }
-      
-      onClose();
-    },
-    onError: () => {
-      toast.error("Failed to save task.");
-    }
-  });
+    return (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 w-full max-w-lg rounded-2xl shadow-xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+                
+                <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                        {isEditing ? (isDeveloper ? 'View Task' : 'Edit Task') : 'Create New Task'}
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                        <X size={24} />
+                    </button>
+                </div>
 
-  return (
-    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl w-full max-w-md shadow-xl border border-gray-200 dark:border-gray-700">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-            {isEditMode ? "Edit Task" : "New Task"}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-            <X size={24} />
-          </button>
+                <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-5">
+                    
+                    {/* Title */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+                        <input
+                            type="text"
+                            required
+                            disabled={isDeveloper}
+                            value={formData.title}
+                            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                            className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                        />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                        <textarea
+                            rows={3}
+                            disabled={isDeveloper}
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 resize-none"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Priority */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
+                            <select
+                                disabled={isDeveloper}
+                                value={formData.priority}
+                                // Fix: Explicitly cast to Priority type
+                                onChange={(e) => setFormData({ ...formData, priority: e.target.value as Priority })}
+                                className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                            >
+                                <option value="LOW">Low</option>
+                                <option value="MEDIUM">Medium</option>
+                                <option value="HIGH">High</option>
+                            </select>
+                        </div>
+
+                        {/* Status (Developers CAN edit this inside the form too) */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+                            <select
+                                value={formData.status}
+                                onChange={(e) => setFormData({ ...formData, status: e.target.value as TaskStatus })}
+                                className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="TODO">To Do</option>
+                                <option value="IN_PROGRESS">In Progress</option>
+                                <option value="REVIEW">Review</option>
+                                <option value="DONE">Done</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Assignee Field */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assignee</label>
+                        {isDeveloper ? (
+                            <div className="flex items-center gap-3">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">
+                                    {formData.assigneeId 
+                                        ? members.find(m => m.id === formData.assigneeId)?.name || 'Someone else' 
+                                        : 'Unassigned'}
+                                </span>
+                                {formData.assigneeId !== user?.id && (
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setFormData({ ...formData, assigneeId: user?.id || '' })}
+                                        className="text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline"
+                                    >
+                                        Assign to me
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            <select
+                                value={formData.assigneeId}
+                                onChange={(e) => setFormData({ ...formData, assigneeId: e.target.value })}
+                                className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="">Unassigned</option>
+                                {members.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+
+                    <div className="mt-4 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 rounded-lg font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={saveMutation.isPending}
+                            className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        >
+                            {saveMutation.isPending ? 'Saving...' : 'Save Task'}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
-
-        <form onSubmit={handleSubmit((data) => saveMutation.mutate(data))} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
-            <input 
-              {...register('title')} 
-              className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500" 
-              placeholder="What needs to be done?" 
-            />
-            {errors.title && <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.title.message}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-            <textarea 
-              {...register('description')} 
-              className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500" 
-              rows={3} 
-            />
-          </div>
-
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
-              <select {...register('priority')} className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
-              </select>
-            </div>
-            
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assign to</label>
-              <select {...register('assigneeId')} className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">Unassigned</option>
-                {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-4 flex gap-3 justify-end">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">Cancel</button>
-            <button type="submit" disabled={saveMutation.isPending} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {saveMutation.isPending ? "Saving..." : (isEditMode ? "Save Changes" : "Add Task")}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+    );
 };

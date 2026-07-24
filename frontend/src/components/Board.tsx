@@ -3,11 +3,13 @@ import { DndContext, DragOverlay, type DragStartEvent, type DragEndEvent } from 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/useAuthStore';
 import { fetchTasks, updateTaskStatus } from '../api/tasks';
-import type { TaskStatus, Task } from '../types';
+import { fetchProjectMembers } from '../api/projects'; // NEW IMPORT
+import type { TaskStatus, Task, Role } from '../types';
 import { Column } from './Column';
 import { TaskForm } from './TaskForm';
-import { Plus, Moon, Sun, ArrowLeft } from 'lucide-react';
+import { Plus, Moon, Sun, ArrowLeft, Users } from 'lucide-react'; // ADDED Users ICON
 import { TaskCard } from './TaskCard';
+import { MembersModal } from './MembersModal'; // NEW IMPORT
 
 const COLUMNS: { id: TaskStatus; title: string }[] = [
   { id: 'TODO', title: 'To Do' },
@@ -23,19 +25,17 @@ const PRIORITY_WEIGHT: Record<string, number> = {
 };
 
 export const Board = () => {
-  const projectId = useAuthStore((state) => state.projectId);
-  const setProjectId = useAuthStore((state) => state.setProjectId);
+  const { projectId, setProjectId, user } = useAuthStore();
   const queryClient = useQueryClient();
   
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      return savedTheme === 'dark';
-    }
+    if (savedTheme) return savedTheme === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
@@ -49,12 +49,24 @@ export const Board = () => {
     }
   }, [isDarkMode]);
 
+ // Fetch tasks
   const { data: tasks, isLoading, error } = useQuery({
     queryKey: ['tasks', projectId],
-    // Dont fetch tasks if projectId is null, return empty array instead
     queryFn: () => projectId ? fetchTasks(projectId) : Promise.resolve([]),
     enabled: !!projectId,
+    refetchInterval: 3000, // FIX: Background polling every 3 seconds for real-time sync
   });
+
+  // Fetch members to determine current user's role
+  const { data: members } = useQuery({
+    queryKey: ['projectMembers', projectId],
+    queryFn: () => projectId ? fetchProjectMembers(projectId) : Promise.resolve([]),
+    enabled: !!projectId,
+  });
+
+  // Determine current user's role in this project (Default to DEVELOPER if not found yet)
+  const currentUserRole: Role = members?.find(m => m.id === user?.id)?.role || 'DEVELOPER';
+  const isAdmin = currentUserRole === 'ADMIN';
 
   const updateMutation = useMutation({
     mutationFn: updateTaskStatus,
@@ -72,11 +84,11 @@ export const Board = () => {
 
       return { previousTasks };
     },
-    onError: (error, variables, context) => {
+    onError: (err, variables, context) => {
       if (context?.previousTasks && projectId) {
         queryClient.setQueryData(['tasks', projectId], context.previousTasks);
       }
-      console.error("Error moving task:", error);
+      console.error("Error moving task:", err);
     },
     onSettled: () => {
       if (projectId) {
@@ -93,7 +105,6 @@ export const Board = () => {
 
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveTask(null);
-    
     const { active, over } = event;
     if (!over) return;
 
@@ -114,7 +125,7 @@ export const Board = () => {
       
       <div className="p-6 md:p-8 flex justify-between items-center flex-shrink-0">
         
-        {/* Left site */}
+        {/* LEFT HEADER: Back button + Title */}
         <div className="flex items-center gap-4">
           <button 
             onClick={() => setProjectId(null)}
@@ -126,23 +137,34 @@ export const Board = () => {
           <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Sprint Board</h1>
         </div>
         
-        {/* Right site */}
-        <div className="flex items-center gap-4">
+        {/* RIGHT HEADER: Theme, Team, Add Task */}
+        <div className="flex items-center gap-3">
           <button 
             onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-2 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            className="p-2.5 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-800 rounded-lg transition-colors"
             title="Toggle theme"
           >
-            {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
+            {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
           </button>
 
           <button 
-            onClick={() => { setTaskToEdit(null); setIsFormOpen(true); }}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors shadow-sm"
+            onClick={() => setIsMembersModalOpen(true)}
+            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors shadow-sm font-medium"
           >
-            <Plus size={20} />
-            Add Task
+            <Users size={18} />
+            <span className="hidden sm:inline">Team</span>
           </button>
+
+          {/* ONLY ADMIN CAN SEE "ADD TASK" BUTTON */}
+          {isAdmin && (
+            <button 
+              onClick={() => { setTaskToEdit(null); setIsFormOpen(true); }}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 transition-colors shadow-sm font-medium"
+            >
+              <Plus size={18} />
+              <span className="hidden sm:inline">Add Task</span>
+            </button>
+          )}
         </div>
       </div>
       
@@ -168,10 +190,25 @@ export const Board = () => {
             <TaskCard task={activeTask} onEdit={() => {}} isOverlay />
           ) : null}
         </DragOverlay>
-        
       </DndContext>
 
-      {isFormOpen && <TaskForm onClose={() => setIsFormOpen(false)} taskToEdit={taskToEdit} />}
+      {/* MODALS */}
+      {isMembersModalOpen && projectId && (
+        <MembersModal 
+          projectId={projectId} 
+          onClose={() => setIsMembersModalOpen(false)} 
+          currentUserRole={currentUserRole} 
+        />
+      )}
+
+      {isFormOpen && (
+        <TaskForm 
+          onClose={() => setIsFormOpen(false)} 
+          taskToEdit={taskToEdit} 
+          currentUserRole={currentUserRole}
+          members={members || []}
+        />
+      )}
     </div>
   );
 };
