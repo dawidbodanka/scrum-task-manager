@@ -494,7 +494,7 @@ const PORT = process.env.PORT || 3000;
 const runDatabaseSetup = () => {
     try {
         console.log('🔄 Running database schema push...');
-        execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
+        execSync('npx prisma db push', { stdio: 'inherit' });
 
         console.log('Running database seed...');
         execSync('npx tsx prisma/seed.ts', { stdio: 'inherit' });
