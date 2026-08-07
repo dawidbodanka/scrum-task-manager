@@ -1,8 +1,10 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 export const apiClient = axios.create({
-    baseURL: 'http://localhost:3000/api',
+    baseURL: `${API_BASE_URL.replace(/\/$/, '')}/api`,
 });
 
 // Interceptor to add the userId from the auth store to the headers of each request
