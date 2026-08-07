@@ -10,6 +10,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { execSync } from 'child_process';
 
 // ----------------------------------------------------------------------------
 // 1. CONFIGURATION & DATABASE SETUP
@@ -490,6 +491,21 @@ app.delete("/api/tasks/:id", authenticateToken, async (req, res) => {
 // ============================================================================
 const PORT = process.env.PORT || 3000;
 
+const runDatabaseSetup = () => {
+    try {
+        console.log('🔄 Running database schema push...');
+        execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
+
+        console.log('Running database seed...');
+        execSync('npx tsx prisma/seed.ts', { stdio: 'inherit' });
+
+        console.log('Database is ready and seeded!');
+    } catch (error) {
+        console.error('Database setup warning/error:', error);
+    }
+};
+
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    runDatabaseSetup();
 });
